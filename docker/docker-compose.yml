@@ -1,0 +1,143 @@
+version: '3.8'
+
+services:
+  # PostgreSQL - Admin Database
+  postgres_admin:
+    image: postgres:15-alpine
+    container_name: campusgrid_postgres_admin
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+      POSTGRES_DB: campusgrid
+    volumes:
+      - postgres_admin_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - campusgrid_network
+
+  # PostgreSQL - School Databases Container (for B2B schools)
+  postgres_schools:
+    image: postgres:15-alpine
+    container_name: campusgrid_postgres_schools
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: school_admin
+      POSTGRES_PASSWORD: school123
+      POSTGRES_DB: campusgrid_group_template
+    volumes:
+      - postgres_schools_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - campusgrid_network
+
+  # CampusGrid Backend API - Admin Portal (Port 4000)
+  campusgrid_be:
+    build:
+      context: ./campusgrid_be
+      dockerfile: Dockerfile
+    container_name: campusgrid_be
+    ports:
+      - "4000:4000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL_ADMIN=postgresql://admin:admin123@postgres_admin:5432/campusgrid?schema=public
+      - DB_SCHOOLS_HOST=postgres_schools
+      - DB_SCHOOLS_PORT=5432
+      - DB_SCHOOLS_USER=school_admin
+      - DB_SCHOOLS_PASSWORD=school123
+      - DB_SCHOOLS_MAIN_DB=postgres
+      - JWT_SECRET=campusgrid_admin_jwt_secret_change_in_production
+      - PORT=4000
+    depends_on:
+      - postgres_admin
+      - postgres_schools
+    networks:
+      - campusgrid_network
+
+  # CampusGrid Group Backend API - B2B & B2C (Port 4001)
+  campusgrid_group_be:
+    build:
+      context: ./campusgrid_group_be
+      dockerfile: Dockerfile
+    container_name: campusgrid_group_be
+    ports:
+      - "4001:4001"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL_ADMIN=postgresql://admin:admin123@postgres_admin:5432/campusgrid?schema=public
+      - DB_SCHOOLS_HOST=postgres_schools
+      - DB_SCHOOLS_PORT=5432
+      - DB_SCHOOLS_USER=school_admin
+      - DB_SCHOOLS_PASSWORD=school123
+      - DB_SCHOOLS_MAIN_DB=postgres
+      - JWT_SECRET=campusgrid_jwt_secret_change_in_production
+      - PORT=4001
+    depends_on:
+      - postgres_admin
+      - postgres_schools
+    networks:
+      - campusgrid_network
+
+  # CampusGrid - Application Admin Panel (Port 5000)
+  campusgrid:
+    build:
+      context: ./campusgrid
+      dockerfile: Dockerfile
+    container_name: campusgrid
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - VITE_API_URL=http://localhost:4000
+    depends_on:
+      - campusgrid_be
+    networks:
+      - campusgrid_network
+
+  # CampusGrid Group - B2B School/Group Management (Port 5001)
+  campusgrid_group:
+    build:
+      context: ./campusgrid_group
+      dockerfile: Dockerfile
+    container_name: campusgrid_group
+    ports:
+      - "5001:5001"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - VITE_API_URL=http://localhost:4001
+    depends_on:
+      - campusgrid_group_be
+    networks:
+      - campusgrid_network
+
+  # CampusGrid Client - B2C School/College Portal (Port 5002)
+  campusgrid_client:
+    build:
+      context: ./campusgrid_client
+      dockerfile: Dockerfile
+    container_name: campusgrid_client
+    ports:
+      - "5002:5002"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - VITE_API_URL=http://localhost:4001
+    depends_on:
+      - campusgrid_group_be
+    networks:
+      - campusgrid_network
+
+networks:
+  campusgrid_network:
+    driver: bridge
+
+volumes:
+  postgres_admin_data:
+  postgres_schools_data:
